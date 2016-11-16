@@ -1,6 +1,6 @@
 ---
 title: "MATH 216 Homework 4"
-author: "WRITE YOUR NAME HERE"
+author: "Andrea Narciso"
 output:
   html_document:
     toc: true
@@ -16,6 +16,9 @@ library(USAboundaries)
 library(maptools)
 library(sp)
 library(broom)
+library(stringr)
+
+
 ```
 
 
@@ -24,10 +27,10 @@ library(broom)
 
 Please indicate
 
-* Who you collaborated with:
-* Roughly how much time you spent on this HW so far:
-* The URL of the RPubs published URL [here](https://www.nhl.com/).
-* What gave you the most trouble:
+* Who you collaborated with: 
+* Roughly how much time you spent on this HW so far: 5 hours
+* The URL of the RPubs published URL [here](http://rpubs.com/anarciso/HW-4).
+* What gave you the most trouble: downloading the census data, figuring out how to find the weighted distance, how to use/combine the different data sets
 * Any comments you have:
 
 
@@ -44,14 +47,64 @@ which is marked on the map with a large red dot.
 ```{r, eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=4.5}
 # Perform your computations here:
 
+# Counties: shape data
+counties_shp <- us_counties()
+states_data <- counties_shp@data
+
+states_polygon <- tidy(counties_shp, region="geoid")
+states <- left_join(states_polygon, states_data, by=c("id"="geoid"))
+
+# Centroids
+centroids <- coordinates(counties_shp)
+states_centroids <- cbind(centroids, states_data) %>%  #states_data: OG of states
+  mutate(geoid = as.integer(geoid)) 
+
+# Counties: census data
+USA_census <-
+  read_csv("census_data_USA_2010.csv") %>% 
+  rename(pop=SE_T001_001) %>% 
+  mutate(
+    state_code = str_pad(Geo_STATE, 2, pad="0"),
+    county_code = str_pad(Geo_COUNTY, 3, pad="0")
+  )
+USA_census <- unite(USA_census, "FIPS_code", state_code, county_code, sep = "") %>% 
+  mutate(FIPS_code = as.integer(FIPS_code)) 
+
+# Combines all and finds weighted long and lat values
+census_centroids <- left_join(USA_census, 
+                              states_centroids, by=c("FIPS_code"="geoid")) %>%
+  filter( !state_name %in% c("Alaska", "Hawaii", "Puerto Rico")) %>% 
+  rename(long = `1`, lat = `2`) %>% 
+  mutate(weighted_long = long*pop,
+         weighted_lat = lat*pop)
+
+combined_data <- left_join(census_centroids, 
+                           states_polygon, by=c("Geo_FIPS"="id")) 
+
+# Location of hub
+hub_x_coord <- sum(census_centroids$weighted_long, na.rm=TRUE) / sum(census_centroids$pop, na.rm=TRUE)
+hub_y_coord <-sum(census_centroids$weighted_lat, na.rm=TRUE) / sum(census_centroids$pop, na.rm=TRUE)
+
+hub_x_coord
+hub_y_coord
+
+# Distance from Hub
+dist_fr_hub <- combined_data %>% 
+  mutate(dist = sqrt((long.y - hub_x_coord)^2 + (lat.y - hub_y_coord)^2)) 
+
+# NEED TO FIX VIRGINIA DATA !!!
+
+
+
 ```
+DHL should put their hub at (-91.64711, 37.55005).
 
-
-```{r, eval=FALSE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=4.5}
+```{r, eval=TRUE, echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=4.5}
 # Here is a template of a ggplot call; feel free to change this to suit your
 # needs. Once your computations above are complete, set the eval=TRUE on the
 # line above to tell R Markdown to run this code block.
-ggplot(data=geo_data, aes(x=long, y=lat, group=group, fill=distance)) +
+
+ggplot(data=dist_fr_hub, aes(x=long.y, y=lat.y, group=group, fill=dist)) +
   # Plot choropleth polygons, low -> high being colored white -> dark green
   geom_polygon() +
   scale_fill_gradient(low="white", high="darkgreen") + 
